@@ -18,7 +18,8 @@ const estado = {
   data: {
     gastos: [], ingresos: [], ahorros: [],
     productos: [], menus: [],
-    catGasto: [], catAhorro: [], catMercado: []
+    catGasto: [], catAhorro: [], catMercado: [],
+    gastosTodos: [], catGastoTodos: []
   }
 };
 
@@ -170,7 +171,7 @@ function logout() {
 // CARGA DE DATOS
 async function cargarDatos() {
   const uid = estado.usuario.id;
-  const [g, i, a, p, m, cg, ca, cm] = await Promise.all([
+  const [g, i, a, p, m, cg, ca, cm, gAll, cgAll] = await Promise.all([
     sb.from('gastos').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
     sb.from('ingresos').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
     sb.from('ahorros').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
@@ -178,7 +179,11 @@ async function cargarDatos() {
     sb.from('menus').select('*').order('fecha', {ascending:true}),
     sb.from('categorias_gasto').select('*').eq('usuario_id', uid),
     sb.from('categorias_ahorro').select('*').eq('usuario_id', uid),
-    sb.from('categorias_mercado').select('*')
+    sb.from('categorias_mercado').select('*'),
+    // Para Mercado compartido: traer TODOS los gastos de TODOS los usuarios
+    sb.from('gastos').select('*'),
+    // Y TODAS las categorías de gasto de TODOS los usuarios
+    sb.from('categorias_gasto').select('*')
   ]);
   estado.data.gastos = g.data || [];
   estado.data.ingresos = i.data || [];
@@ -188,6 +193,9 @@ async function cargarDatos() {
   estado.data.catGasto = cg.data || [];
   estado.data.catAhorro = ca.data || [];
   estado.data.catMercado = cm.data || [];
+  // Datos compartidos para Mercado
+  estado.data.gastosTodos = gAll.data || [];
+  estado.data.catGastoTodos = cgAll.data || [];
 }
 
 // NAVEGACIÓN
@@ -346,7 +354,7 @@ function renderTabAgenda() {
       <div class="mini-cards">
         ${principales.length === 0 ? '<div style="grid-column:span 2;color:#5A8AC0;font-size:12px;text-align:center;padding:10px">Sin ingresos registrados</div>' : ''}
         ${principales.map(i => `
-          <div class="mini-card">
+          <div class="mini-card" onclick="editarIngreso(${i.id})" oncontextmenu="event.preventDefault();ctxIngreso(event,${i.id})" style="cursor:pointer">
             <p>${i.persona || 'Ingreso'}</p>
             <p>${fmt(i.valor)}</p>
           </div>
@@ -524,6 +532,13 @@ function abrirFormIngreso(id) {
   `);
 }
 function editarIngreso(id) { abrirFormIngreso(id); }
+
+function ctxIngreso(e, id) {
+  mostrarCtxMenu(e.clientX, e.clientY, [
+    { label: 'Editar', action: () => editarIngreso(id) },
+    { label: 'Eliminar', peligro: true, action: () => eliminarIngreso(id) }
+  ]);
+}
 
 async function guardarIngreso(id) {
   const tipo = $('i-tipo').value;
@@ -727,7 +742,7 @@ function renderTabAhorro() {
       <p class="card-numero ${saldo<0?'negativo':''}">${fmt(saldo)}</p>
       <div class="mini-cards">
         ${principales.length === 0 ? '<div style="grid-column:span 2;color:#5A8AC0;font-size:12px;text-align:center;padding:10px">Sin ingresos</div>' :
-          principales.slice(0,4).map(i => `<div class="mini-card"><p>${i.persona || 'Ingreso'}</p><p>${fmt(i.valor)}</p></div>`).join('')}
+          principales.slice(0,4).map(i => `<div class="mini-card" onclick="editarIngreso(${i.id})" oncontextmenu="event.preventDefault();ctxIngreso(event,${i.id})" style="cursor:pointer"><p>${i.persona || 'Ingreso'}</p><p>${fmt(i.valor)}</p></div>`).join('')}
       </div>
     </div>
 
@@ -907,12 +922,15 @@ function renderDonaAhorroPorLugar() {
 // VISTA MERCADO
 // ============================================
 function renderMercado() {
-  // Cargar TODOS los gastos con categoría es_mercado de TODOS los usuarios para el saldo
-  // Pero como gastos son privados por usuario, sumamos los del usuario actual
-  // Saldo = suma de gastos con categoria.es_mercado del mes seleccionado
-  const catsMercado = estado.data.catGasto.filter(c => c.es_mercado);
-  const idsMercado = catsMercado.map(c => c.id);
-  const gastosMercado = filtrarPorMes(estado.data.gastos).filter(g => idsMercado.includes(g.categoria_id));
+  // MERCADO COMPARTIDO: sumar presupuestos de TODOS los usuarios
+  // Categorías es_mercado de cualquier usuario
+  const catsMercadoTodos = estado.data.catGastoTodos.filter(c => c.es_mercado);
+  const idsMercadoTodos = catsMercadoTodos.map(c => c.id);
+  // Filtrar gastos del mes seleccionado de TODOS los usuarios con categoría mercado
+  const filtradosTodos = estado.mes === 'acumulado' 
+    ? estado.data.gastosTodos 
+    : estado.data.gastosTodos.filter(g => g.mes === estado.mes);
+  const gastosMercado = filtradosTodos.filter(g => idsMercadoTodos.includes(g.categoria_id));
   const presupuestado = gastosMercado.reduce((s,g) => s + Number(g.valor), 0);
 
   const productos = filtrarPorMes(estado.data.productos);
